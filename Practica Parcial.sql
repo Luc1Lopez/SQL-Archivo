@@ -1,13 +1,13 @@
 /*1. Sabiendo que un producto recurrente es aquel producto que al menos
-se compró durante 6 meses en el último año.
+se comprÃ³ durante 6 meses en el Ãºltimo aÃ±o.
 Realizar una consulta SQL que muestre los clientes que tengan
 productos recurrentes y de estos clientes mostrar:
 
-i. El código de cliente.
-ii. El nombre del producto más comprado del cliente.
-iii. La cantidad comprada total del cliente en el último año.
+i. El cÃ³digo de cliente.
+ii. El nombre del producto mÃ¡s comprado del cliente.
+iii. La cantidad comprada total del cliente en el Ãºltimo aÃ±o.
 
-Ordenar el resultado por el nombre del cliente alfabéticamente.*/
+Ordenar el resultado por el nombre del cliente alfabÃ©ticamente.*/
 
 --Lo hice yo, esta bastante bien
 /*
@@ -72,17 +72,17 @@ HAVING
 ORDER BY 
  c.clie_razon_social ASC*/
 
-/*1. Implementar una restricción que no deje realizar operaciones masivas
-sobre la tabla cliente. En caso de que esto se intente se deberá
-registrar que operación se intentó realizar , en que fecha y hora y sobre
-que datos se trató de realizar.*/
+/*1. Implementar una restricciÃ³n que no deje realizar operaciones masivas
+sobre la tabla cliente. En caso de que esto se intente se deberÃ¡
+registrar que operaciÃ³n se intentÃ³ realizar , en que fecha y hora y sobre
+que datos se tratÃ³ de realizar.*/
 
 /*
 CREATE TABLE RegistroOperaciones (
     id INT IDENTITY PRIMARY KEY (1,1),
     operacion NVARCHAR(10), -- INSERT, UPDATE, DELETE
     fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
-    detalles TEXT -- Información sobre la operación (puede incluir identificadores o condiciones)
+    detalles TEXT -- InformaciÃ³n sobre la operaciÃ³n (puede incluir identificadores o condiciones)
 );
 
 
@@ -140,10 +140,10 @@ entre 2 y 4 componentes distintos a nivel producto y cuyos
 componentes no fueron todos vendidos (todos) en 2012 pero si en el
 2011.
 De estos productos mostrar:
-i. El código de producto.
+i. El cÃ³digo de producto.
 ii. El nombre del producto.
-iii. El precio máximo al que se vendió en 2011 el producto.
-El resultado deberá ser ordenado por cantidad de unidades vendidas
+iii. El precio mÃ¡ximo al que se vendiÃ³ en 2011 el producto.
+El resultado deberÃ¡ ser ordenado por cantidad de unidades vendidas
 del producto en el 2011.*/
 
 /*
@@ -471,5 +471,109 @@ BEGIN
 		IF(@rubro IN (SELECT l.rubro FROM dbo.ListaRubros l))
 		
 ROLLBACK TRANSACTION
+END
+*/
+
+/*SELECT ROW_NUMBER() OVER(ORDER BY SUM(i.item_cantidad) DESC) AS POSICION, --BIEN
+c.clie_codigo AS COD_CLIENTE, --BIEN
+c.clie_razon_social AS NOM_CLIENTE, --BIEN
+SUM(i.item_cantidad) AS CANT_TOTAL, --BIEN
+(SELECT TOP 1 r.rubr_id
+FROM Factura f1
+JOIN Item_Factura i1 ON
+f1.fact_numero = i1.item_numero AND
+f1.fact_sucursal = i1.item_sucursal AND
+f1.fact_tipo = i1.item_tipo
+JOIN Producto p1 ON
+p1.prod_codigo = i1.item_producto
+JOIN Rubro r ON
+r.rubr_id = p1.prod_rubro
+WHERE f1.fact_cliente = c.clie_codigo
+AND YEAR(f1.fact_fecha) = 2012
+GROUP BY f1.fact_cliente,r.rubr_id
+ORDER BY COUNT(r.rubr_id) DESC
+) AS CATEGORIA
+FROM Factura f
+JOIN Item_Factura i ON
+f.fact_numero = i.item_numero AND
+f.fact_sucursal = i.item_sucursal AND
+f.fact_tipo = i.item_tipo
+JOIN Producto p ON
+p.prod_codigo = i.item_producto
+JOIN Cliente c ON
+c.clie_codigo = f.fact_cliente
+LEFT JOIN Factura f2 ON 
+    f2.fact_cliente = f.fact_cliente AND YEAR(f2.fact_fecha) % 2 <> 0 -- Clientes con compras en aÃ±os impares
+WHERE YEAR(f.fact_fecha) = 2012
+  AND f2.fact_cliente IS NULL -- Excluir clientes que hayan comprado en aÃ±os impares
+GROUP BY c.clie_codigo,c.clie_razon_social
+HAVING COUNT(DISTINCT p.prod_rubro) > 3
+ORDER BY SUM(i.item_cantidad) DESC
+
+SELECT c.clie_codigo AS COD,
+SUM(f.fact_total) AS TOTAL,
+SUM(i.item_cantidad) AS CANT
+FROM Factura f
+JOIN Item_Factura i ON
+f.fact_numero = i.item_numero AND
+f.fact_sucursal = i.item_sucursal AND
+f.fact_tipo = i.item_tipo
+JOIN Producto p ON
+p.prod_codigo = i.item_producto
+JOIN Cliente c ON
+c.clie_codigo = f.fact_cliente
+GROUP BY c.clie_codigo,f.fact_fecha
+HAVING YEAR(f.fact_fecha) = 2012
+ORDER BY 
+    CASE 
+        WHEN NOT EXISTS (SELECT 1 
+                         FROM Composicion p2 
+                         WHERE p2.comp_producto IN (SELECT i.item_producto 
+                                                   FROM Item_Factura i 
+                                                   WHERE i.item_numero = f.fact_numero 
+                                                     AND i.item_sucursal = f.fact_sucursal 
+                                                     AND i.item_tipo = f.fact_tipo) 
+                         AND p2.comp_componente = 'S') 
+        THEN 1 
+        ELSE 2 
+    END;
+
+
+CREATE TABLE Provincia(
+	id INT PRIMARY KEY,
+	nombre NVARCHAR(100)
+)
+
+ALTER TABLE Cliente ADD pcia_id INT NULL
+
+CREATE TABLE Direccion(
+	id INT PRIMARY KEY,
+	id_prov INT NOT NULL,
+	id_cliente CHAR(6) NOT NULL,
+	FOREIGN KEY (id_prov) REFERENCES Provincia,
+	FOREIGN KEY (id_cliente) REFERENCES Cliente
+)
+
+CREATE TRIGGER prueba 
+ON Direccion AFTER INSERT
+AS
+BEGIN
+	DECLARE @id INT
+	DECLARE @cli CHAR(6)
+	SELECT @id = d.id_prov FROM Direccion d 
+	JOIN inserted I ON i.id = d.id
+	SELECT @cli = d.id_prov FROM Direccion d 
+	JOIN inserted I ON i.id = d.id
+	IF(@cli IN (SELECT d1.id_cliente FROM Direccion d1))
+		--RAISERROR ('Job id 1 expects the default level of 10.', 16, 1)
+		ROLLBACK TRANSACTION
+	ELSE
+	BEGIN TRANSACTION
+		UPDATE Cliente 
+		SET clie_pcia_id = @id
+		WHERE clie_codigo = @cli
+	COMMIT TRANSACTION
+	END IF
+	COMMIT TRANSACTION
 END
 */
