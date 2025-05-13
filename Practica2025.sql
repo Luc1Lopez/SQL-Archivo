@@ -169,14 +169,15 @@ ORDER BY 2 DESC
 
 --eje 12
 SELECT p.prod_detalle, COUNT(DISTINCT fact_cliente),
-AVG(item_precio * item_cantidad), COUNT(DISTINCT stoc_deposito),SUM(ISNULL(stoc_cantidad,0))
+AVG(item_precio * item_cantidad), 
+(SELECT COUNT(DISTINCT stoc_deposito) FROM STOCK WHERE stoc_producto = p.prod_codigo),
+(SELECT SUM(ISNULL(stoc_cantidad,0)) FROM STOCK WHERE stoc_producto = p.prod_codigo)
 FROM Producto p
 LEFT JOIN Item_Factura ON p.prod_codigo = item_producto
 LEFT JOIN Factura ON fact_numero = item_numero 
 AND fact_tipo = item_tipo
 AND fact_sucursal = item_sucursal
-LEFT JOIN STOCK ON stoc_producto = p.prod_codigo
-GROUP BY p.prod_detalle, P.prod_codigo
+GROUP BY p.prod_detalle, p.prod_codigo
 HAVING p.prod_codigo IN 
 (
 SELECT prod_codigo FROM Producto
@@ -187,8 +188,7 @@ AND fact_sucursal = item_sucursal
 WHERE YEAR(fact_fecha) = 2012
 GROUP BY prod_codigo
 )
-ORDER BY 5 DESC--629
---Parece estar bien, pero tarda un toque, quizas ese having es un problema
+ORDER BY SUM(item_cantidad * item_precio) DESC
 
 
 
@@ -208,23 +208,19 @@ LEFT JOIN Producto p1 ON p1.prod_codigo = comp_producto
 LEFT JOIN Producto p2 ON p2.prod_codigo = comp_componente
 GROUP BY p1.prod_detalle,p1.prod_precio
 HAVING COUNT(DISTINCT comp_componente) >= 2
-ORDER BY SUM(comp_cantidad)
+ORDER BY COUNT(DISTINCT comp_componente) DESC
 
 --eje 14
 
 SELECT clie_codigo,COUNT(DISTINCT fact_numero),
 ISNULL(AVG(fact_total),0), ISNULL(COUNT(DISTINCT item_producto),0),
-(
-	SELECT TOP 1 ISNULL(fact_total,0)
-	FROM Factura f1 WHERE f1.fact_cliente = clie_codigo
-	ORDER BY f1.fact_total DESC
-)
+MAX(fact_total)
 FROM Cliente
 LEFT JOIN Factura ON fact_cliente = clie_codigo
 LEFT JOIN Item_Factura ON fact_numero = item_numero 
 AND fact_tipo = item_tipo
 AND fact_sucursal = item_sucursal
-WHERE YEAR(fact_fecha) = 2012
+AND YEAR(fact_fecha) = 2012
 --Deberia ir YEAR(GET_DATE()) - 1 en vez de 2012, pero queria que devolviera algo
 GROUP BY clie_codigo
 ORDER BY 2 DESC
@@ -241,7 +237,7 @@ AND i1.item_tipo = i2.item_tipo
 AND i1.item_sucursal = i2.item_sucursal
 JOIN Producto p1 ON p1.prod_codigo = i1.item_producto
 JOIN Producto p2 ON p2.prod_codigo = i2.item_producto
-WHERE p1.prod_codigo <> p2.prod_codigo AND p1.prod_codigo > p2.prod_codigo
+WHERE p1.prod_codigo > p2.prod_codigo
 GROUP BY p1.prod_codigo, p1.prod_detalle, p2.prod_codigo, p2.prod_detalle
 ORDER BY 5 DESC
 
@@ -254,7 +250,7 @@ SELECT clie_razon_social, SUM(item_cantidad),
 	JOIN Item_Factura ON fact_numero = item_numero 
 	AND fact_tipo = item_tipo
 	AND fact_sucursal = item_sucursal
-	WHERE fact_cliente = clie_codigo 
+	WHERE fact_cliente = clie_codigo AND YEAR(fact_fecha) = 2012 
 	GROUP BY item_producto
 	ORDER BY SUM(item_cantidad) DESC, item_producto ASC
 
@@ -285,15 +281,10 @@ SELECT ISNULL(FORMAT(fact_fecha,'yyyy/MM'),'0000/00')
 ,prod_codigo, prod_detalle,
 SUM(ISNULL(item_cantidad,0)), 
 ISNULL((
-SELECT SUM(item_cantidad)
-FROM Item_Factura i  
-JOIN Factura f ON f.fact_numero = i.item_numero 
-AND f.fact_tipo = i.item_tipo
-AND f.fact_sucursal = i.item_sucursal
-AND prod_codigo = i.item_producto
+SELECT SUM(fact_total - fact_total_impuestos)
+FROM Factura f 
 WHERE YEAR(f.fact_fecha) - 1 = YEAR(fact_fecha)
 AND MONTH(f.fact_fecha) = MONTH(fact_fecha)
-GROUP BY i.item_producto
 ),0),
 ISNULL(COUNT(DISTINCT fact_numero),0)
 FROM Producto p
@@ -394,28 +385,60 @@ HAVING ISNULL(COUNT(DISTINCT fact_numero),0) > 100
 ORDER BY 1 ASC, 3 DESC 
 --parece bueno
 
---eje 23
-SELECT YEAR(fact_fecha)
-FROM Factura 
-LEFT JOIN Item_Factura ON fact_numero = item_numero 
-AND fact_tipo = item_tipo
-AND fact_sucursal = item_sucursal
-LEFT JOIN Producto ON prod_codigo = item_producto
-RIGHT JOIN Composicion ON comp_producto = prod_codigo
-GROUP BY YEAR(fact_fecha)
-HAVING
-ORDER BY
 
+--eje 24
+
+SELECT p.prod_codigo,p.prod_detalle, 
+SUM(i.item_cantidad)
+FROM Factura f
+LEFT JOIN Item_Factura i ON
+f.fact_numero = i.item_numero AND
+f.fact_tipo = i.item_tipo AND
+f.fact_sucursal = i.item_sucursal 
+JOIN Producto p ON p.prod_codigo = i.item_producto
+WHERE f.fact_vendedor IN (
+SELECT TOP 2 e1.empl_codigo FROM Empleado e1 ORDER BY e1.empl_comision DESC
+) AND
+p.prod_codigo IN (SELECT DISTINCT comp_producto FROM Composicion )
+GROUP BY p.prod_codigo,p.prod_detalle
+HAVING COUNT(DISTINCT f.fact_numero) >= 5 
+ORDER BY 3 DESC
+
+--eje 25 este y el 23 es con un sub select en el where, pero nose porque tarda tanto
+SELECT YEAR(f1.fact_fecha),
+(SELECT TOP 1 r.rubr_id
+FROM Factura f
+LEFT JOIN Item_Factura i ON
+f.fact_numero = i.item_numero AND
+f.fact_tipo = i.item_tipo AND
+f.fact_sucursal = i.item_sucursal AND
+YEAR(f1.fact_fecha) = YEAR(f.fact_fecha)
+JOIN Producto p ON p.prod_codigo = i.item_producto
+RIGHT JOIN Rubro r ON r.rubr_id = p.prod_rubro
+GROUP BY r.rubr_id
+ORDER BY SUM(i.item_cantidad) DESC) 
+FROM Factura f1 
+LEFT JOIN Item_Factura i1 ON 
+i1.item_numero = f1.fact_numero AND
+i1.item_sucursal = f1.fact_sucursal AND
+i1.item_tipo = f1.fact_tipo
+GROUP BY  YEAR(f1.fact_fecha)
 /*
-23. Realizar una consulta SQL que para cada año muestre :
-? Año
-? El producto con composición más vendido para ese año.
-? Cantidad de productos que componen directamente al producto más vendido
-? La cantidad de facturas en las cuales aparece ese producto.
-? El código de cliente que más compro ese producto.
-? El porcentaje que representa la venta de ese producto respecto al total de venta
-del año.
-El resultado deberá ser ordenado por el total vendido por año en forma descendente.
+Realizar una consulta SQL que para cada año y familia muestre : 
+a. Año 
+b. El código de la familia más vendida en ese año. 
+c. Cantidad de Rubros que componen esa familia. 
+d. Cantidad de productos que componen directamente al producto más vendido de 
+esa familia. 
+e. La cantidad de facturas en las cuales aparecen productos pertenecientes a esa 
+familia. 
+f. 
+El código de cliente que más compro productos de esa familia. 
+g. El porcentaje que representa la venta de esa familia respecto al total de venta 
+del año. 
+El resultado deberá ser ordenado por el total vendido por año y familia en forma 
+descendente. 
 */
+
 
 
